@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_CassetteStatus" Id="{ef336f4b-4096-46d1-b70a-ea002fe1836c}">
+    <Declaration><![CDATA[TYPE ST_CassetteStatus :
+STRUCT
+	CassetteOnPedestal : BOOL;
+	WaveguidePresent : ARRAY[0..23] OF BOOL := [24(FALSE)]; //initiallize none present
+	ClearBelowWaveguide : ARRAY[0..23] OF BOOL := [24(FALSE)]; //initiallize not clear
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

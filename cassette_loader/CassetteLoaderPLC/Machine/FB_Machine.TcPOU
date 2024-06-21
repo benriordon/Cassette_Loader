@@ -1,0 +1,136 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_Machine" Id="{067a575c-0bd0-4c2e-a663-2c591df869e5}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Machine EXTENDS FB_PackML_BaseModule
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	//Sub Module 
+	CassetteLoader : FB_CassetteLoader := (Name := 'Cassette Loader', LogStateChanges := TRUE); 
+	
+	    // Components
+
+    //Initial List of Components
+    ipComponents_Init : ARRAY[1..Parameters_PackML_Base.MAX_NO_OF_COMPONENTS] OF I_ComponentBase := [];
+
+    //Alarms for this module
+    MachineAlarms : ARRAY[1..MACHINE_ALARM_COUNT] OF FB_TcAlarm;
+	//Alarm count constant
+    MACHINE_ALARM_COUNT : INT := 6;
+	
+	//Current Recipe Name
+	CurrentRecipeName : STRING;
+
+    //Get Data From PackML? Else RecipeManager is running
+    DataFromPackML : BOOL := TRUE;
+	
+	 //Pack Tags for System
+    {attribute 'OPC.UA.DA' := '1'}
+    _PackTags : ST_PackMLv30Ext; //ST_PackMLv30 is obsolete in Tc3_PackML_V2
+	
+END_VAR
+
+// Simulation variables
+VAR
+    EstopInput  : BOOL;
+    LowAirInput : BOOL;
+    ErrorInput  : BOOL;
+    WarnInput   : BOOL;
+    InfoInput   : BOOL;
+END_VAR
+
+VAR CONSTANT
+    //PackTag parameter IDs
+//    LENGTH         : INT := 1;
+//    SEALTEMP       : INT := 2;
+//    SEALTIME       : INT := 3;
+//    PULLWHEELS_VEL : INT := 4;
+//    PULLWHEELS_ACC : INT := 5;
+//    SEALER_VEL     : INT := 6;
+//    SEALER_ACC     : INT := 7;
+//    UNWIND_VEL     : INT := 8;
+//    UNWIND_ACC     : INT := 9;
+//    OPEN_POS       : INT := 10;
+//    CLOSED_POS     : INT := 11;
+
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Folder Name="I_CyclicLogic" Id="{93372ba7-d698-4915-8188-dbf3210fbabc}" />
+    <Folder Name="Methods" Id="{d4bee5de-80c0-458b-bec7-6987ebe2abc4}">
+      <Folder Name="ActingStates" Id="{f47d36f1-1819-4825-b52e-c7c69c9ebde1}" />
+      <Folder Name="WaitingStates" Id="{91695d7d-71ed-4339-af7c-cfe78ad71840}" />
+    </Folder>
+    <Method Name="Completing" Id="{f3728e0c-d8a1-45fc-bc3c-f9b805452a7a}" FolderPath="Methods\ActingStates\">
+      <Declaration><![CDATA[METHOD PROTECTED Completing
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _CurrentMode OF
+    //=================================PRODUCTION MODE==================================
+    E_PMLUnitMode.ePMLUnitMode_Production:
+        StateComplete();
+    E_PMLUnitMode.ePMLUnitMode_Maintenance, E_PMLUnitMode.ePMLUnitMode_Manual:
+        SUPER^.Completing();
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CyclicLogic" Id="{4a9d3d2c-0f8f-43b1-bc41-8ac161f20e3e}" FolderPath="I_CyclicLogic\">
+      <Declaration><![CDATA[METHOD CyclicLogic
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT _InitComplete THEN
+    _InitComplete := Initialize();
+    RETURN;
+END_IF
+
+SUPER^.CyclicLogic();
+
+// Fill in the PackTags for the machine output
+_PackTags.Status.StateCurrent    := _CurrentState;
+_PackTags.Status.UnitModeCurrent := _CurrentMode;
+//UpdateModeTimers();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Holding" Id="{2fbc334e-0afb-4aed-9453-f829d774a2f1}" FolderPath="Methods\ActingStates\">
+      <Declaration><![CDATA[METHOD PROTECTED Holding
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _CurrentMode OF
+    //=================================PRODUCTION MODE==================================
+    E_PMLUnitMode.ePMLUnitMode_Production:
+        IF (CassetteLoader.CurrentState = E_PMLState.ePMLState_Complete OR CassetteLoader.CurrentState = E_PMLState.ePMLState_Idle) THEN
+            StateComplete();
+        END_IF
+    E_PMLUnitMode.ePMLUnitMode_Maintenance, E_PMLUnitMode.ePMLUnitMode_Manual:
+        SUPER^.Holding();
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_Machine">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_Machine.Completing">
+      <LineId Id="6" Count="5" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_Machine.CyclicLogic">
+      <LineId Id="6" Count="9" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_Machine.Holding">
+      <LineId Id="6" Count="3" />
+      <LineId Id="11" Count="3" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

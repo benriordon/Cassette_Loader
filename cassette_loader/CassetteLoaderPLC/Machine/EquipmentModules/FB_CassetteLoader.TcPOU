@@ -1,0 +1,619 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_CassetteLoader" Id="{e1442105-7e9e-435d-a38b-588b19f392f0}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_CassetteLoader EXTENDS FB_PackML_BaseModule
+
+VAR
+	    // Sub module definitions here
+
+    // List of sub modules
+    ipSubModules_Init : ARRAY[1..Parameters_PackML_Base.MAX_NO_OF_SUBMODULES] OF I_PackML_BaseModule := [];
+
+    // Component definitions here
+    ElevatorAxisA : FB_Component_BasicAxis := (Name := 'ElevatorA');
+	ElevatorAxisB : FB_Component_BasicAxis := (Name := 'ElevatorB');
+	ShuttleAxis : FB_Component_BasicAxis := (Name := 'Shuttle');
+	MapSensorA : FB_DigitalSensor := (Name := 'MapSensorA');
+	MapSensorB : FB_DigitalSensor := (Name := 'MapSensorB');
+	
+	//Alarms for this Module
+	LoaderAlarms : ARRAY[1..LOADER_ALARM_COUNT] OF FB_TcAlarm;
+	
+	//Data for module
+    Recipe : ST_LoaderRecipe;
+	CassetteAStatus : ST_CassetteStatus;
+	CassetteBStatus : ST_CassetteStatus;
+	
+	//HMI Control for EM
+    //fbControlSourceHMI : FB_ControlSource_HMI;
+	
+
+END_VAR
+
+VAR CONSTANT
+	LOADER_ALARM_COUNT : INT := 6;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Folder Name="I_CyclicFB" Id="{ab7f0c2a-9be7-47f0-880e-086853a8a382}" />
+    <Folder Name="Methods" Id="{7d33ab3d-f7f6-49cb-81a8-db41b285a909}">
+      <Folder Name="Acting States" Id="{4dc4a433-6b0f-4a50-87a1-2e14bd3ee869}" />
+      <Folder Name="Custom Methods" Id="{c87beed5-5d3b-4fd7-b255-b9a95be15bb8}" />
+      <Folder Name="Waiting States" Id="{4ade595e-9a9e-4bb8-8687-f1fd8755933b}" />
+    </Folder>
+    <Folder Name="Properties" Id="{0f5023fd-9dc3-438b-8401-c69763c4d630}" />
+    <Method Name="Aborting" Id="{33e9e90e-3c8f-4146-b67b-b2569e47f20a}" FolderPath="Methods\Acting States\">
+      <Declaration><![CDATA[METHOD PROTECTED Aborting
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE SequenceState OF
+    0:
+        NoStateTasksToComplete := FALSE;
+        SequenceState          := SequenceState + 10;
+    10:
+        ElevatorAxisA.Stop();
+		ElevatorAxisB.Stop();
+		ShuttleAxis.Stop();
+        IF (ElevatorAxisA.Stopped AND ElevatorAxisB.Stopped AND ShuttleAxis.Stopped) THEN
+            SequenceState := SequenceState + 10;
+        END_IF
+    20:
+        // Disable here
+        ElevatorAxisA.Disable();
+		ElevatorAxisB.Disable();
+		ShuttleAxis.Disable();
+
+        // Check not enabled here
+        IF NOT (ElevatorAxisA.Enabled AND ElevatorAxisB.Enabled AND ShuttleAxis.Enabled) THEN
+            SequenceState := SequenceState + 10;
+        END_IF
+    30:
+        StateTasksComplete := TRUE;
+END_CASE
+
+SUPER^.Aborting();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="BladeThickness" Id="{9b89bbfa-aeab-4504-a73f-51ef9aacf01e}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY BladeThickness : LREAL]]></Declaration>
+      <Get Name="Get" Id="{7e38671f-1374-4a26-a08f-91a1b03491a2}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[BladeThickness := recipe.Elevator.BladeThickness;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{8de687c7-47ef-4748-96b6-a06c87012404}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[BladeThickness := recipe.Elevator.BladeThickness;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="CassettePitch" Id="{99b231eb-d7c5-4fb1-9e23-58eaa7f6727c}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY CassettePitch : LREAL]]></Declaration>
+      <Get Name="Get" Id="{e55fadb5-c9db-4ee9-8fa1-306a0bafd3f8}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[CassettePitch := recipe.Elevator.CassettePitch;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{866448cc-784e-4b68-8e27-c18b16ca3ceb}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[recipe.Elevator.CassettePitch := CassettePitch;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="CassetteSlotHeight" Id="{066cae7e-2874-46c9-a619-7f2e4bdb666c}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY CassetteSlotHeight : LREAL]]></Declaration>
+      <Get Name="Get" Id="{7f9e9967-649e-4a92-b0ae-f6dd4378639c}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[CassetteSlotHeight := recipe.Elevator.CassetteSlotHeight;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{1c704c35-c70b-493b-81a6-11eb3fac4214}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[recipe.Elevator.CassetteSlotHeight := CassetteSlotHeight;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="CassetteSlotNumber" Id="{7e3fa52a-5f57-4861-aec1-955bb5ec4fa4}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY CassetteSlotNumber : INT]]></Declaration>
+      <Get Name="Get" Id="{4bb2f4dd-5aff-4203-a947-393b27ff1f15}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[CassetteSlotNumber := recipe.Elevator.CassetteSlotNumber;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{0bb09dad-87b2-456d-8868-340314efe1e4}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[recipe.Elevator.CassetteSlotNumber := CassetteSlotNumber;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="Clearing" Id="{d98b2f50-4364-48fd-8d94-31f4c0da6c04}" FolderPath="Methods\Acting States\">
+      <Declaration><![CDATA[METHOD PROTECTED Clearing
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE SequenceState OF
+    0:
+        NoStateTasksToComplete := FALSE;
+        SequenceState          := SequenceState + 10;
+    10:
+        // Enable here
+        ElevatorAxisA.Enable();
+		ElevatorAxisB.Enable();
+		ShuttleAxis.Enable();
+
+        // Check enabled here
+        IF (ElevatorAxisA.Enabled AND ElevatorAxisB.Enabled AND ShuttleAxis.Enabled) THEN
+            SequenceState := SequenceState + 10;
+        END_IF
+    20:
+        StateTasksComplete := TRUE;
+END_CASE
+
+SUPER^.Clearing();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CyclicLogic" Id="{b8b1f610-e7ce-489d-abc2-e340ab00a953}" FolderPath="I_CyclicFB\">
+      <Declaration><![CDATA[METHOD CyclicLogic
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT _InitComplete THEN
+    _InitComplete := Initialize();
+    RETURN;
+END_IF
+
+SUPER^.CyclicLogic();
+
+//Set the current alarm severity for this module
+_CurrentAlarmSeverity   := F_GetMaxSeverityRaised(Alarms := LoaderAlarms, CurrentSeverity := _CurrentAlarmSeverity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DetermineNextSlot" Id="{1346f1ec-1877-4d3d-ad4d-af6d28eb70b2}" FolderPath="Methods\Custom Methods\">
+      <Declaration><![CDATA[METHOD DetermineNextSlot : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//This method will review the results of the wafer map arrays and output the cassette and slot number to place the next waveguide from the tool]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DetermineNextWaveguide" Id="{6de7ea29-ee39-4576-ae0e-b4af486f76c4}" FolderPath="Methods\Custom Methods\">
+      <Declaration><![CDATA[METHOD DetermineNextWaveguide : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//This method will review the results of the wafer map arrays and output the cassette and slot number of the waveguide to remove next]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ElevatorAcceleration" Id="{ec23dba9-1f3d-44ba-8976-3d1b29c1b0e7}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY ElevatorAcceleration : LREAL]]></Declaration>
+      <Get Name="Get" Id="{6585a2df-20c2-4b7b-90cd-d477bf988a55}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ElevatorAcceleration := recipe.Elevator.Acceleration;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{3a1f2b02-b519-4bae-9de0-393d4f0d03d8}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[recipe.Elevator.Acceleration := ElevatorAcceleration;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="ElevatorFirstWaveguidePosition" Id="{d49b5647-3a4e-4c76-9ca2-fc0bd2b4cc85}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY ElevatorFirstWaveguidePosition : LREAL]]></Declaration>
+      <Get Name="Get" Id="{06ed25cb-d6c8-48d1-aa1f-9d96edd75fc9}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ElevatorFirstWaveguidePosition := recipe.Elevator.FirstWaveguidePosition;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{a5056d01-f334-418b-984c-c642c9304f6d}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[recipe.Elevator.FirstWaveguidePosition := ElevatorFirstWaveguidePosition;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="ElevatorVelocity" Id="{596ec064-d93a-4634-b242-badec1e1af24}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY ElevatorVelocity : LREAL]]></Declaration>
+      <Get Name="Get" Id="{1d423af7-4da4-4783-982a-cb398b3f1bab}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ElevatorVelocity := recipe.Elevator.Velocity;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{a5358478-4863-490b-964e-0a374995c995}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[recipe.Elevator.Velocity := ElevatorVelocity;
+]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="Execute" Id="{f9997ab5-bbbe-4198-ab99-4b129008096f}" FolderPath="Methods\Waiting States\">
+      <Declaration><![CDATA[METHOD PROTECTED Execute
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _CurrentMode OF
+    //=================================PRODUCTION MODE==================================
+    E_PMLUnitMode.ePMLUnitMode_Production:
+//        CASE SequenceState OF
+//            0:
+//                IF SealerAxis.InPosition AND NOT SealerAxis.Busy THEN
+//                    /// SealerAxis needs to do reporting here?? no tags in the components for PackML so should be done with this module
+//                    dwellTime(IN := TRUE, PT := LREAL_TO_TIME(Recipe.SealTime));
+//                    SequenceState := SequenceState + 10;
+//                END_IF
+//            10:
+//                IF dwellTime.Q THEN
+//                    dwellTime(IN := FALSE);
+//                    SealerAxis.Velocity     := Recipe.Axis.Velocity;    
+//                    SealerAxis.Acceleration := Recipe.Axis.Acceleration;
+//                    SealerAxis.MoveAbsolute(Position := Recipe.OpenPosition, FALSE);
+//                    SequenceState := SequenceState + 10;
+//                END_IF
+//            20:
+//                IF SealerAxis.InPosition AND NOT SealerAxis.Busy THEN
+//                    ///SealerAxis report position?
+//                    StateComplete();
+//                END_IF
+//        END_CASE
+
+
+    //=================================MAINTENANCE & MANUAL MODE==================================		
+    E_PMLUnitMode.ePMLUnitMode_Maintenance, E_PMLUnitMode.ePMLUnitMode_Manual:
+        ;
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetNextWaveguide" Id="{1997f330-ca7f-4a4e-8e23-7984b89fe323}" FolderPath="Methods\Custom Methods\">
+      <Declaration><![CDATA[METHOD GetNextWaveguide : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//This method will get the waveguide in the cassette and slot defined as next-available and move the shuttle to the tool position ]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="LoadCassette" Id="{ee35de60-c5f2-4af1-8448-c7a13c5e4bd2}" FolderPath="Methods\Custom Methods\">
+      <Declaration><![CDATA[METHOD LoadCassette : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* This method will allow the user to stop the machine, open the door, install cassettes, 
+close the door, restart the machine, map the cassettes and go into a ready state *)
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="MapCassette" Id="{56a6e915-6f8a-4fb4-ad24-df0b01475ae7}" FolderPath="Methods\Custom Methods\">
+      <Declaration><![CDATA[METHOD MapCassette : BOOL
+VAR_INPUT
+	CassetteToMap : INT; //Cassette A is zero, Cassette B is one, etc.
+END_VAR
+
+VAR
+	
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[
+//this method will map the cassette specified in CassetteToMap, saving the output in the array CassetteAStatus.WaveguidePresent]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PlaceToNextOpenSlot" Id="{df984bf4-69c9-4aed-ad44-c7461d2d7919}" FolderPath="Methods\Custom Methods\">
+      <Declaration><![CDATA[METHOD PlaceToNextOpenSlot : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//This method will place the waveguide (placed on the blade by the tool) to the next open slot]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ShuttleCassettePosition" Id="{86ad11d0-eab7-4f1a-9cfc-1c216e256605}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY ShuttleCassettePosition : LREAL]]></Declaration>
+      <Get Name="Get" Id="{07de01f3-c991-4ce6-aea1-124bf272898f}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ShuttleCassettePosition := recipe.Shuttle.CassettePosition;
+]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{16f2069d-2392-4aac-9ff6-a6575f31f614}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[recipe.Shuttle.CassettePosition := ShuttleCassettePosition;
+]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="ShuttleToolPosition" Id="{d9c4f83d-a087-4177-8e75-79e642b536e5}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY ShuttleToolPosition : LREAL]]></Declaration>
+      <Get Name="Get" Id="{6231cdc5-356f-4940-89b0-7e214191d0b3}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ShuttleToolPosition := recipe.Shuttle.ToolPosition;
+]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{fd9bed83-13be-4030-b114-1537baf9f9f9}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[recipe.Shuttle.ToolPosition := ShuttleToolPosition;
+]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="ShuttleVelocity" Id="{35d9c7f6-51f0-4e07-8604-e69c2eca9451}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY ShuttleVelocity : LREAL]]></Declaration>
+      <Get Name="Get" Id="{48d75316-5457-4a47-bbfb-4bfd39d36374}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ShuttleVelocity := recipe.Shuttle.Velocity;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{70b67659-7aab-445b-a7d1-b79d1d645663}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[recipe.Shuttle.Velocity := ShuttleVelocity;
+]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="Starting" Id="{6eebb228-a4b5-4734-8334-401f42d4fa4d}" FolderPath="Methods\Acting States\">
+      <Declaration><![CDATA[METHOD Starting : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _CurrentMode OF
+    //=================================PRODUCTION MODE==================================
+    E_PMLUnitMode.ePMLUnitMode_Production:
+        CASE SequenceState OF
+            0:
+                NoStateTasksToComplete := FALSE;
+                SequenceState          := SequenceState + 10;
+            10:
+                //Set motion axis parameters based on the recipe values
+				ElevatorAxisA.Velocity := Recipe.ElevatorA.Velocity;
+				ElevatorAxisA.Acceleration := Recipe.ElevatorA.Acceleration;
+				ElevatorAxisB.Velocity := Recipe.ElevatorB.Velocity;
+				ElevatorAxisB.Acceleration := Recipe.ElevatorB.Acceleration;
+				ShuttleAxis.Velocity := Recipe.Shuttle.Velocity;
+				ShuttleAxis.Acceleration := Recipe.Shuttle.Acceleration;
+				FB_CassetteLoader.ShuttleCassettePosition := Recipe.ShuttleLoadPosition;
+                SequenceState := SequenceState + 10;
+            20:
+                IF (ElevatorAxisA.Busy AND ElevatorAxisB.Busy AND ShuttleAxis.Busy) THEN
+                    StateTasksComplete := TRUE;
+                END_IF
+        END_CASE
+
+    //=================================MAINTENANCE & MANUAL MODE==================================
+    E_PMLUnitMode.ePMLUnitMode_Maintenance, E_PMLUnitMode.ePMLUnitMode_Manual:
+        ;
+END_CASE
+
+SUPER^.Starting();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UnloadCassette" Id="{8aea1982-41d3-46b5-96ee-f96fdba3f914}" FolderPath="Methods\Custom Methods\">
+      <Declaration><![CDATA[METHOD UnloadCassette : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* This method will allow the user to trigger an unload sequence, open the door, remove the cassettes,
+close the door and wait for new cassettes *)]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="WaveguideThickness" Id="{229efe54-3fa5-464a-aa50-fa72bcb3a290}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY WaveguideThickness : LREAL]]></Declaration>
+      <Get Name="Get" Id="{b679666f-fa70-4b69-a334-687177986088}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[WaveguideThickness := recipe.Elevator.WaveguideThickness;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{3fd9057d-0e65-431d-8eb7-1800583dfa1b}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[recipe.Elevator.WaveguideThickness := WaveguideThickness;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <LineIds Name="FB_CassetteLoader">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.Aborting">
+      <LineId Id="6" Count="5" />
+      <LineId Id="28" Count="1" />
+      <LineId Id="13" Count="5" />
+      <LineId Id="30" Count="1" />
+      <LineId Id="19" Count="8" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.BladeThickness.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.BladeThickness.Set">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.CassettePitch.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.CassettePitch.Set">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.CassetteSlotHeight.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.CassetteSlotHeight.Set">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.CassetteSlotNumber.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.CassetteSlotNumber.Set">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.Clearing">
+      <LineId Id="6" Count="6" />
+      <LineId Id="22" Count="1" />
+      <LineId Id="13" Count="8" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.CyclicLogic">
+      <LineId Id="6" Count="7" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.DetermineNextSlot">
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.DetermineNextWaveguide">
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ElevatorAcceleration.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ElevatorAcceleration.Set">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ElevatorFirstWaveguidePosition.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ElevatorFirstWaveguidePosition.Set">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ElevatorVelocity.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ElevatorVelocity.Set">
+      <LineId Id="2" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.Execute">
+      <LineId Id="6" Count="23" />
+      <LineId Id="31" Count="4" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.GetNextWaveguide">
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.LoadCassette">
+      <LineId Id="5" Count="2" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.MapCassette">
+      <LineId Id="5" Count="0" />
+      <LineId Id="7" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.PlaceToNextOpenSlot">
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ShuttleCassettePosition.Get">
+      <LineId Id="2" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ShuttleCassettePosition.Set">
+      <LineId Id="2" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ShuttleToolPosition.Get">
+      <LineId Id="2" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ShuttleToolPosition.Set">
+      <LineId Id="2" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ShuttleVelocity.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ShuttleVelocity.Set">
+      <LineId Id="2" Count="0" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.Starting">
+      <LineId Id="6" Count="8" />
+      <LineId Id="29" Count="0" />
+      <LineId Id="33" Count="0" />
+      <LineId Id="30" Count="0" />
+      <LineId Id="34" Count="0" />
+      <LineId Id="31" Count="0" />
+      <LineId Id="35" Count="0" />
+      <LineId Id="32" Count="0" />
+      <LineId Id="17" Count="11" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.UnloadCassette">
+      <LineId Id="5" Count="1" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.WaveguideThickness.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.WaveguideThickness.Set">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_ElevatorRecipe" Id="{81718745-2941-4c38-8bd1-d4b0e31feeaf}">
+    <Declaration><![CDATA[TYPE ST_ElevatorRecipe :
+STRUCT
+	    Velocity     : LREAL;
+        Acceleration : LREAL;
+		FirstWaveguidePosition : LREAL;
+		CassettePitch : LREAL;
+		CassetteSlotHeight : LREAL;
+		CassetteSlotNumber : INT;
+		WaveguideThickness : LREAL;
+		BladeThickness : LREAL;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>
