@@ -417,11 +417,32 @@ END_VAR
         </Implementation>
       </Set>
     </Property>
-    <Method Name="Starting" Id="{6eebb228-a4b5-4734-8334-401f42d4fa4d}" FolderPath="Methods\Acting States\">
-      <Declaration><![CDATA[METHOD Starting : BOOL
-VAR_INPUT
+    <Method Name="Starting" Id="{58998f7f-7f9d-4d33-84bd-cff353cfff86}" FolderPath="Methods\Acting States\">
+      <Declaration><![CDATA[//! @summary This method contains code which will execute when this PackML module is in the <b>Starting</b> state
+METHOD PROTECTED Starting
+VAR
+	i				: UDINT;
+	SubModulesReady : BOOL := TRUE;
 END_VAR
-]]></Declaration>
+
+(*! <description><b></b><table> 
+	<tr>
+		<th> Previous State </th>
+		<th> Transition In </th>
+		<th> Transition Out </th>
+		<th> Next State  </th> 
+	</tr>
+	<tr>
+		<td> Idle </td>
+		<td> Start Command </td> 
+		<td> State Complete </td>
+		<td> Execute </td> 
+	</tr>
+</table>
+This method is called as required by <c>StateControl()</c>
+</description> 
+
+*)]]></Declaration>
       <Implementation>
         <ST><![CDATA[CASE _CurrentMode OF
     //=================================PRODUCTION MODE==================================
@@ -431,14 +452,8 @@ END_VAR
                 NoStateTasksToComplete := FALSE;
                 SequenceState          := SequenceState + 10;
             10:
-                //Set motion axis parameters based on the recipe values
-				ElevatorAxisA.Velocity := Recipe.ElevatorA.Velocity;
-				ElevatorAxisA.Acceleration := Recipe.ElevatorA.Acceleration;
-				ElevatorAxisB.Velocity := Recipe.ElevatorB.Velocity;
-				ElevatorAxisB.Acceleration := Recipe.ElevatorB.Acceleration;
-				ShuttleAxis.Velocity := Recipe.Shuttle.Velocity;
-				ShuttleAxis.Acceleration := Recipe.Shuttle.Acceleration;
-				FB_CassetteLoader.ShuttleCassettePosition := Recipe.ShuttleLoadPosition;
+                //assign all recipe values here
+				ElevatorAxisA.Velocity := Recipe.Elevator.Velocity;
                 SequenceState := SequenceState + 10;
             20:
                 IF (ElevatorAxisA.Busy AND ElevatorAxisB.Busy AND ShuttleAxis.Busy) THEN
@@ -449,9 +464,7 @@ END_VAR
     //=================================MAINTENANCE & MANUAL MODE==================================
     E_PMLUnitMode.ePMLUnitMode_Maintenance, E_PMLUnitMode.ePMLUnitMode_Manual:
         ;
-END_CASE
-
-SUPER^.Starting();]]></ST>
+END_CASE]]></ST>
       </Implementation>
     </Method>
     <Method Name="UnloadCassette" Id="{8aea1982-41d3-46b5-96ee-f96fdba3f914}" FolderPath="Methods\Custom Methods\">
@@ -595,16 +608,10 @@ END_VAR
       <LineId Id="5" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.Starting">
-      <LineId Id="6" Count="8" />
-      <LineId Id="29" Count="0" />
-      <LineId Id="33" Count="0" />
-      <LineId Id="30" Count="0" />
-      <LineId Id="34" Count="0" />
-      <LineId Id="31" Count="0" />
-      <LineId Id="35" Count="0" />
-      <LineId Id="32" Count="0" />
-      <LineId Id="17" Count="11" />
-      <LineId Id="5" Count="0" />
+      <LineId Id="27" Count="8" />
+      <LineId Id="48" Count="0" />
+      <LineId Id="38" Count="9" />
+      <LineId Id="26" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.UnloadCassette">
       <LineId Id="5" Count="1" />

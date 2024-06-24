@@ -1,13 +1,62 @@
-<?xml version="1.0" encoding="utf-8"?>
-<TcPlcObject Version="1.1.0.1">
-  <POU Name="MAIN" Id="{7ff428b3-db85-4631-8c8c-96d4e1c4c158}">
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="MAIN" Id="{7ff428b3-db85-4631-8c8c-96d4e1c4c158}" SpecialFunc="None">
     <Declaration><![CDATA[PROGRAM MAIN
 VAR
+	ControlSource_HMI : FB_ControlSource_HMI_Machine;
+    CassetteLoaderMachine          : FB_Machine := (Name := 'CassetteLoader');
+    InitComplete      : BOOL;
 END_VAR
-]]>
-    </Declaration>
+]]></Declaration>
     <Implementation>
-      <ST><![CDATA[]]></ST>
+      <ST><![CDATA[CyclicLogic();]]></ST>
     </Implementation>
+    <Method Name="CyclicLogic" Id="{e4df8800-7b85-407b-9a30-119fb045f4db}">
+      <Declaration><![CDATA[METHOD CyclicLogic
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT InitComplete THEN
+    InitComplete := Initialize();
+    RETURN;
+END_IF
+
+//Machine support HMI & Production Monitor
+ControlSource_HMI.CyclicLogic();
+
+//Machine Cyclic Logic
+CassetteLoaderMachine.CyclicLogic();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Initialize" Id="{eeec5a12-3342-49cf-9ecb-a8497678fc9b}">
+      <Declaration><![CDATA[METHOD Initialize : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//Top level machine initialization should happen here, in the main initialization method. Each subsequent "layer" of modules will be named within their respective "parent" intialize method
+_AppInfo.KeepOutputsOnBP := TRUE;
+IF NOT ControlSource_HMI.Registered THEN
+    CassetteLoaderMachine.RegisterExternalController(ControlSource_HMI);
+END_IF
+
+ControlSource_HMI.CyclicLogic();
+Initialize := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="MAIN">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="MAIN.CyclicLogic">
+      <LineId Id="6" Count="8" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="15" Count="0" />
+    </LineIds>
+    <LineIds Name="MAIN.Initialize">
+      <LineId Id="6" Count="6" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
   </POU>
 </TcPlcObject>

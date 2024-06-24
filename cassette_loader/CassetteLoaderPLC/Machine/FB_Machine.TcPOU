@@ -8,7 +8,7 @@ VAR_OUTPUT
 END_VAR
 VAR
 	//Sub Module 
-	CassetteLoader : FB_CassetteLoader := (Name := 'Cassette Loader', LogStateChanges := TRUE); 
+	CassetteLoaderEM : FB_CassetteLoader := (Name := 'Cassette Loader', LogStateChanges := TRUE); 
 	
 	    // Components
 
@@ -17,8 +17,7 @@ VAR
 
     //Alarms for this module
     MachineAlarms : ARRAY[1..MACHINE_ALARM_COUNT] OF FB_TcAlarm;
-	//Alarm count constant
-    MACHINE_ALARM_COUNT : INT := 6;
+
 	
 	//Current Recipe Name
 	CurrentRecipeName : STRING;
@@ -55,6 +54,8 @@ VAR CONSTANT
 //    OPEN_POS       : INT := 10;
 //    CLOSED_POS     : INT := 11;
 
+	//Alarm count constant
+    MACHINE_ALARM_COUNT : INT := 6;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -108,11 +109,12 @@ END_VAR
         <ST><![CDATA[CASE _CurrentMode OF
     //=================================PRODUCTION MODE==================================
     E_PMLUnitMode.ePMLUnitMode_Production:
-        IF (CassetteLoader.CurrentState = E_PMLState.ePMLState_Complete OR CassetteLoader.CurrentState = E_PMLState.ePMLState_Idle) THEN
+        IF (CassetteLoaderEM.CurrentState = E_PMLState.ePMLState_Complete OR CassetteLoaderEM.CurrentState = E_PMLState.ePMLState_Idle) THEN
             StateComplete();
         END_IF
     E_PMLUnitMode.ePMLUnitMode_Maintenance, E_PMLUnitMode.ePMLUnitMode_Manual:
         SUPER^.Holding();
+	
 END_CASE]]></ST>
       </Implementation>
     </Method>
@@ -130,6 +132,7 @@ END_CASE]]></ST>
     <LineIds Name="FB_Machine.Holding">
       <LineId Id="6" Count="3" />
       <LineId Id="11" Count="3" />
+      <LineId Id="18" Count="0" />
       <LineId Id="5" Count="0" />
     </LineIds>
   </POU>
