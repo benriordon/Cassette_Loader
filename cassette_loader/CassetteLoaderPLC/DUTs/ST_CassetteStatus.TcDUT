@@ -4,6 +4,8 @@
     <Declaration><![CDATA[TYPE ST_CassetteStatus :
 STRUCT
 	CassetteOnPedestal : BOOL;
+	CassetteFull : BOOL;
+	CassetteEmpty : BOOL;
 	WaveguidePresent : ARRAY[0..23] OF BOOL := [24(FALSE)]; //initiallize none present
 	ClearBelowWaveguide : ARRAY[0..23] OF BOOL := [24(FALSE)]; //initiallize not clear
 END_STRUCT

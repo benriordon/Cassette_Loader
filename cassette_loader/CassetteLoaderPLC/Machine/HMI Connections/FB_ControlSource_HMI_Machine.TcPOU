@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_ControlSource_HMI_Machine" Id="{708ae7c8-8969-45be-a63e-34297409e3e6}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ControlSource_HMI_Machine EXTENDS FB_ControlSource_HMI
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Folder Name="I_CyclicFB" Id="{096b75c7-2a33-43e6-90be-f6444d73dcc0}" />
+    <Method Name="CyclicLogic" Id="{05ee13b1-d1c5-4006-adde-304fc8abd829}" FolderPath="I_CyclicFB\">
+      <Declaration><![CDATA[METHOD CyclicLogic
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SUPER^.CyclicLogic();
+
+//Change the start permissive for the Machine 
+MainPMLControl_Simplified.StartPermissive :=
+    MainPMLControl_Standard.CurrentState = Tc3_PackML_V2.E_PMLState.ePMLState_Idle OR
+    (MainPMLControl_Standard.CurrentState = Tc3_PackML_V2.E_PMLState.ePMLState_Held AND
+    MAIN.CassetteLoaderMachine.CurrentState = E_PMLState.ePMLState_Idle);
+	
+]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_ControlSource_HMI_Machine">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_ControlSource_HMI_Machine.CyclicLogic">
+      <LineId Id="5" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="6" Count="0" />
+      <LineId Id="9" Count="3" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="8" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

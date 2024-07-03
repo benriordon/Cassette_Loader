@@ -16,6 +16,11 @@ VAR
 	MapSensorA : FB_DigitalSensor := (Name := 'MapSensorA');
 	MapSensorB : FB_DigitalSensor := (Name := 'MapSensorB');
 	
+	//Assign Homing Routine to Use the Absolute Encoder, using the persistent struct below
+	AbsHomingElevA : FB_HomeRoutine_AbsHoming;
+	AbsHomingElevB : FB_HomeRoutine_AbsHoming;
+	AbsHomingShuttle : FB_HomeRoutine_AbsHoming;
+		
 	//Alarms for this Module
 	LoaderAlarms : ARRAY[1..LOADER_ALARM_COUNT] OF FB_TcAlarm;
 	
@@ -23,19 +28,42 @@ VAR
     Recipe : ST_LoaderRecipe;
 	CassetteAStatus : ST_CassetteStatus;
 	CassetteBStatus : ST_CassetteStatus;
+	_ElevatorAxisAStagePosition : LREAL;
+	_ElevatorAxisBStagePosition : LREAL;
+	_ShuttleAxisStagePosition : LREAL;
+	_ElevatorAxisAHomePosition : LREAL;
+	_ElevatorAxisBHomePosition : LREAL;
+	_ShuttleAxisHomePosition : LREAL;
 	
 	//HMI Control for EM
-    //fbControlSourceHMI : FB_ControlSource_HMI;
+    fbControlSourceHMI : FB_ControlSource_HMI;
 	
+	//Load or Unload Mode: Commanded by External, TRUE= Load, FALSE = Unload
+	_LoadOrUnload : BOOL;
+	_ShuttleReady : BOOL;
 
+	//This trigger each axis at the abs zero position when in maintenance or manual mode
+	AbsHomeCmdA: BOOL;
+	AbsHomeCmdB: BOOL;
+	AbsHomeCmdShuttle: BOOL;
+	_NeedsMapping: BOOL;
+	_NextSlot: DINT;
+	_NextCassette: INT;
 END_VAR
 
 VAR CONSTANT
 	LOADER_ALARM_COUNT : INT := 6;
 END_VAR
+
+VAR PERSISTENT
+	ElevAHomingParameters : ST_AbsHomeParameters;
+	ElevBHomingParameters : ST_AbsHomeParameters;
+	ShuttleHomingParameters : ST_AbsHomeParameters;
+END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[]]></ST>
+      <ST><![CDATA[ShuttleHomingParameters.PositionBias := 0;
+]]></ST>
     </Implementation>
     <Folder Name="I_CyclicFB" Id="{ab7f0c2a-9be7-47f0-880e-086853a8a382}" />
     <Folder Name="Methods" Id="{7d33ab3d-f7f6-49cb-81a8-db41b285a909}">
@@ -58,9 +86,10 @@ END_VAR
         ElevatorAxisA.Stop();
 		ElevatorAxisB.Stop();
 		ShuttleAxis.Stop();
-        IF (ElevatorAxisA.Stopped AND ElevatorAxisB.Stopped AND ShuttleAxis.Stopped) THEN
-            SequenceState := SequenceState + 10;
-        END_IF
+//        IF (ElevatorAxisA.Stopped AND ElevatorAxisB.Stopped AND ShuttleAxis.Stopped) THEN
+//            SequenceState := SequenceState + 10;
+//        END_IF
+		SequenceState := SequenceState + 10;
     20:
         // Disable here
         ElevatorAxisA.Disable();
@@ -164,16 +193,10 @@ END_VAR
     0:
         NoStateTasksToComplete := FALSE;
         SequenceState          := SequenceState + 10;
-    10:
-        // Enable here
-        ElevatorAxisA.Enable();
-		ElevatorAxisB.Enable();
-		ShuttleAxis.Enable();
-
-        // Check enabled here
-        IF (ElevatorAxisA.Enabled AND ElevatorAxisB.Enabled AND ShuttleAxis.Enabled) THEN
-            SequenceState := SequenceState + 10;
-        END_IF
+	10:
+        //Reset any alarms that get latched
+        //PullWheelAlarms[E_PullWheels.StartTimeout].Clear(0, 0);
+        SequenceState := SequenceState + 10;
     20:
         StateTasksComplete := TRUE;
 END_CASE
@@ -185,6 +208,14 @@ SUPER^.Clearing();]]></ST>
       <Declaration><![CDATA[METHOD CyclicLogic
 VAR_INPUT
 END_VAR
+
+VAR
+	i : INT;
+	TotalInCassetteA : INT;
+	TotalInCassetteB : INT;
+	CassetteAInteger : ARRAY[0..23] OF INT; //matching array with INT type
+	CassetteBInteger : ARRAY[0..23] OF INT; //matching array with INT type
+END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[IF NOT _InitComplete THEN
@@ -195,25 +226,68 @@ END_IF
 SUPER^.CyclicLogic();
 
 //Set the current alarm severity for this module
-_CurrentAlarmSeverity   := F_GetMaxSeverityRaised(Alarms := LoaderAlarms, CurrentSeverity := _CurrentAlarmSeverity);]]></ST>
+_CurrentAlarmSeverity   := F_GetMaxSeverityRaised(Alarms := LoaderAlarms, CurrentSeverity := _CurrentAlarmSeverity);
+
+//Add up the number of waveguides in each cassette and mark the cassette status as full
+	FOR i := 0 TO 23 DO
+		IF CassetteAStatus.WaveguidePresent[i] = TRUE THEN
+			CassetteAInteger[i] := 1;
+		ELSE
+			CassetteAInteger[i] := 0;
+		END_IF
+		TotalInCassetteA := TotalInCassetteA + CassetteAInteger[i];
+		IF TotalInCassetteA > 22 THEN
+			CassetteAStatus.CassetteFull := TRUE;
+		END_IF
+	END_FOR; 
+	
+	FOR i := 0 TO 23 DO
+		IF CassetteBStatus.WaveguidePresent[i] = TRUE THEN
+			CassetteBInteger[i] := 1;
+		ELSE
+			CassetteBInteger[i] := 0;
+		END_IF
+		TotalInCassetteB := TotalInCassetteB + CassetteBInteger[i];
+		IF TotalInCassetteB > 22 THEN
+			CassetteBStatus.CassetteFull := TRUE;
+		END_IF
+	END_FOR; ]]></ST>
       </Implementation>
     </Method>
     <Method Name="DetermineNextSlot" Id="{1346f1ec-1877-4d3d-ad4d-af6d28eb70b2}" FolderPath="Methods\Custom Methods\">
-      <Declaration><![CDATA[METHOD DetermineNextSlot : BOOL
+      <Declaration><![CDATA[METHOD DetermineNextSlot : DINT
 VAR_INPUT
+	CassetteID : ST_CassetteStatus;
 END_VAR
-]]></Declaration>
+
+VAR
+	i: DINT;
+END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[//This method will review the results of the wafer map arrays and output the cassette and slot number to place the next waveguide from the tool]]></ST>
+        <ST><![CDATA[//This method searches the wafer map array from the bottom to the top, returning the highest slot that is empty
+	FOR i := 0 TO 23 DO
+		IF CassetteID.WaveguidePresent[i] = FALSE THEN
+			DetermineNextSlot := i;
+		END_IF
+	END_FOR;]]></ST>
       </Implementation>
     </Method>
     <Method Name="DetermineNextWaveguide" Id="{6de7ea29-ee39-4576-ae0e-b4af486f76c4}" FolderPath="Methods\Custom Methods\">
-      <Declaration><![CDATA[METHOD DetermineNextWaveguide : BOOL
+      <Declaration><![CDATA[METHOD DetermineNextWaveguide : INT
 VAR_INPUT
+		CassetteID : ST_CassetteStatus;
 END_VAR
-]]></Declaration>
+
+VAR
+	i: INT;
+END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[//This method will review the results of the wafer map arrays and output the cassette and slot number of the waveguide to remove next]]></ST>
+        <ST><![CDATA[//This method searches the wafer map array from the bottom to the top, returning the lowest slot that is full
+	FOR i := 23 TO 0 DO
+		IF CassetteID.WaveguidePresent[i] = TRUE THEN
+			DetermineNextWaveguide := i;
+		END_IF
+	END_FOR;]]></ST>
       </Implementation>
     </Method>
     <Property Name="ElevatorAcceleration" Id="{ec23dba9-1f3d-44ba-8976-3d1b29c1b0e7}" FolderPath="Properties\">
@@ -283,47 +357,230 @@ END_VAR
         <ST><![CDATA[CASE _CurrentMode OF
     //=================================PRODUCTION MODE==================================
     E_PMLUnitMode.ePMLUnitMode_Production:
-//        CASE SequenceState OF
-//            0:
-//                IF SealerAxis.InPosition AND NOT SealerAxis.Busy THEN
-//                    /// SealerAxis needs to do reporting here?? no tags in the components for PackML so should be done with this module
-//                    dwellTime(IN := TRUE, PT := LREAL_TO_TIME(Recipe.SealTime));
-//                    SequenceState := SequenceState + 10;
-//                END_IF
-//            10:
-//                IF dwellTime.Q THEN
-//                    dwellTime(IN := FALSE);
-//                    SealerAxis.Velocity     := Recipe.Axis.Velocity;    
-//                    SealerAxis.Acceleration := Recipe.Axis.Acceleration;
-//                    SealerAxis.MoveAbsolute(Position := Recipe.OpenPosition, FALSE);
-//                    SequenceState := SequenceState + 10;
-//                END_IF
-//            20:
-//                IF SealerAxis.InPosition AND NOT SealerAxis.Busy THEN
-//                    ///SealerAxis report position?
-//                    StateComplete();
-//                END_IF
-//        END_CASE
+		IF _LoadOrUnload = TRUE THEN // _LoadOrUnload = TRUE means LOAD the cassette
+			
+		//Loading case
+			CASE SequenceState OF
+
+				10:		//Figure out where to put the next waveguide
+						//we will load cassette A (top-down) before cassette B (top-down), so if A is full start loading B 
+						IF NOT CassetteAStatus.CassetteFull THEN
+							_NextSlot := DetermineNextSlot(CassetteID := CassetteAStatus);
+							_NextCassette := 0; 
+						ELSE	
+							_NextSlot := DetermineNextSlot(CassetteID := CassetteBStatus);
+							_NextCassette := 1;
+						END_IF
+						SequenceState := SequenceState + 10;
+				20:		//Make sure that the space under/over the slot is clear, abort if obstructed
+						IF _NextCassette = 0 THEN
+							IF (CassetteAStatus.ClearBelowWaveguide[_NextSlot] AND CassetteAStatus.ClearBelowWaveguide[_NextSlot + 1]) = TRUE THEN
+								SequenceState := SequenceState + 10;
+							ELSE
+								//changestate(ePMLState_Aborting);
+							END_IF
+						ELSE
+							IF (CassetteBStatus.ClearBelowWaveguide[_NextSlot] AND CassetteBStatus.ClearBelowWaveguide[_NextSlot + 1]) = TRUE THEN
+								SequenceState := SequenceState + 10;
+							ELSE
+								//changestate(ePMLState_Aborting);
+							END_IF
+						END_IF
+						SequenceState := SequenceState + 10;
+				30: 	//Move all to staged position
+						SequenceState := SequenceState + 10;
+				40:		//Call PlaceToNextOpenSlot method
+						PlaceToNextOpenSlot(_NextCassette, _NextSlot);
+						SequenceState := SequenceState + 10;
+				50:		//Depending on which cassette we loaded, update the map to add the waveguide:
+						IF _NextCassette = 0 THEN
+							CassetteAStatus.WaveguidePresent[_NextSlot]:= 1;
+						ELSE
+							CassetteBStatus.WaveguidePresent[_NextSlot]:= 1;
+						END_IF
+						SequenceState := SequenceState + 10;
+
+				99:		//based on the cassette status, either go into suspending or completing
+						IF (CassetteAStatus.CassetteFull AND CassetteBStatus.CassetteFull) THEN
+							StateComplete();
+						ELSE
+							//go into suspending state
+							//changestate(ePMLState_Suspending);
+						END_IF
+			END_CASE
+			
+		//Unload Case	
+		ELSE //_LoadOrUnload = FALSE means UNLOAD the cassette
+			
+			CASE SequenceState OF
+				10: //Figure out which waveguide to remove first
+				//we will unload cassette A (bottom-up) before cassette B (bottom-up), so if A is empty start unloading B
+						IF CassetteAStatus.CassetteFull THEN
+							_NextSlot := DetermineNextWaveguide(CassetteID := CassetteAStatus);
+							_NextCassette := 0; 
+						ELSE	
+							_NextSlot := DetermineNextWaveguide(CassetteID := CassetteBStatus);
+							_NextCassette := 1;
+						END_IF
+						SequenceState := SequenceState + 10;
+				20:		//Make sure that the space under/over the slot is clear, abort if obstructed
+						IF _NextCassette = 0 THEN
+							IF (CassetteAStatus.ClearBelowWaveguide[_NextSlot] AND CassetteAStatus.ClearBelowWaveguide[_NextSlot + 1]) = TRUE THEN
+								SequenceState := SequenceState + 10;
+							ELSE
+								//changestate(ePMLState_Aborting);
+							END_IF
+						ELSE
+							IF (CassetteBStatus.ClearBelowWaveguide[_NextSlot] AND CassetteBStatus.ClearBelowWaveguide[_NextSlot + 1]) = TRUE THEN
+								SequenceState := SequenceState + 10;
+							ELSE
+								//changestate(ePMLState_Aborting);
+							END_IF
+						END_IF
+						SequenceState := SequenceState + 10;
+				30:		//Pre-position the stages
+						IF _NextCassette = 0 THEN
+							ElevatorAxisA.MoveAbsolute(_ElevatorAxisAStagePosition,TRUE);
+							ElevatorAxisB.MoveAbsolute(_ElevatorAxisBHomePosition,TRUE);
+							ShuttleAxis.MoveAbsolute(_ShuttleAxisStagePosition, TRUE);
+						ELSE
+							ElevatorAxisA.MoveAbsolute(_ElevatorAxisAHomePosition,TRUE);
+							ElevatorAxisB.MoveAbsolute(_ElevatorAxisBStagePosition,TRUE);
+							ShuttleAxis.MoveAbsolute(_ShuttleAxisStagePosition, TRUE);
+						END_IF
+						SequenceState := SequenceState + 10;
+				40: 	//Confirm all axis preposition movements are complete
+						IF (ElevatorAxisA.Busy AND ElevatorAxisB.Busy AND ShuttleAxis.Busy) THEN
+							SequenceState := SequenceState + 10;
+						END_IF
+				50:		//Call GetNextWaveguide method
+						GetNextWaveGuide(_NextCassette, _NextSlot);
+						SequenceState := SequenceState + 10;
+				60:		//Depending on which cassette we unloaded, update the map to remove the waveguide:
+						IF _NextCassette = 0 THEN
+							CassetteAStatus.WaveguidePresent[_NextSlot]:= 0;
+						ELSE
+							CassetteBStatus.WaveguidePresent[_NextSlot]:= 0;
+						END_IF
+						SequenceState := SequenceState + 10;
+				
+			END_CASE
+		END_IF
+//If we are waiting for the tool to load/unload the waveguide, switch to Suspending state
+
 
 
     //=================================MAINTENANCE & MANUAL MODE==================================		
     E_PMLUnitMode.ePMLUnitMode_Maintenance, E_PMLUnitMode.ePMLUnitMode_Manual:
-        ;
+        //Reset the abs zero position when commanded
+		IF AbsHomeCmdA THEN
+    		AbsHomingElevA.Execute();
+    		AbsHomeCmdA:=FALSE;
+		END_IF;
+		
+		IF AbsHomeCmdB THEN
+    		AbsHomingElevA.Execute();
+    		AbsHomeCmdB:=FALSE;
+		END_IF;
+		
+		IF AbsHomeCmdShuttle THEN
+    		AbsHomingElevA.Execute();
+    		AbsHomeCmdShuttle:=FALSE;
+		END_IF;
 END_CASE]]></ST>
       </Implementation>
     </Method>
     <Method Name="GetNextWaveguide" Id="{1997f330-ca7f-4a4e-8e23-7984b89fe323}" FolderPath="Methods\Custom Methods\">
       <Declaration><![CDATA[METHOD GetNextWaveguide : BOOL
 VAR_INPUT
+	NextCassette : INT;
+	NextSlot : DINT;
 END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[//This method will get the waveguide in the cassette and slot defined as next-available and move the shuttle to the tool position ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="Initialize" Id="{dc16f921-5111-486b-8d1c-42cc395f7e89}">
+      <Declaration><![CDATA[//! @summary Basic module initialization logic
+METHOD PROTECTED Initialize : BOOL;
+VAR
+	i						 : UDINT;
+	varInfo					 : __SYSTEM.VAR_INFO;
+	AllSubUnitsInitialized	 : BOOL := TRUE;
+	AllComponentsInitialized : BOOL := TRUE;
+END_VAR
+
+//! @description This method is called by <c>CyclicLogic()</c> as required]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Initialize := FALSE;
+CASE DescendantSequenceState OF
+    0:
+		//RegisterComponent here (none for now)
+        _LogModeChanges         := FALSE;
+        _LogStateChanges        := FALSE;
+        DescendantSequenceState := DescendantSequenceState + 10;
+    10:
+        //Setup Custom modes here
+        CustomModes(eMode                          :=,
+                    sName                          := 'Name',
+                    bDisableClearing               := FALSE,
+                    bDisableStarting               := FALSE,
+                    bDisableSuspended              := FALSE,
+                    bDisableStopping               := FALSE,
+                    bDisableAborting               := FALSE,
+                    bDisableHolding                := TRUE, //no operator hold state 
+                    bDisableHeld                   := TRUE,
+                    bDisableUnholding              := TRUE,
+                    bDisableSuspending             := FALSE,
+                    bDisableUnsuspending           := FALSE,
+                    bDisableResetting              := FALSE,
+                    bDisableIdle                   := FALSE,
+                    bDisableCompleting             := FALSE,
+                    bDisableComplete               := FALSE,
+                    bEnableUnitModeChangeStopped   := TRUE,
+                    bEnableUnitModeChangeIdle      := TRUE,
+                    bEnableUnitModeChangeSuspended := FALSE,
+                    bEnableUnitModeChangeExecute   := FALSE,
+                    bEnableUnitModeChangeAborted   := FALSE,
+                    bEnableUnitModeChangeHeld      := FALSE,
+                    bEnableUnitModeChangeComplete  := FALSE,
+                    bError                         =>,
+                    nErrorId                       =>);
+        DescendantSequenceState := DescendantSequenceState + 10;
+    20:
+        //Copy Mode names
+        FOR i := 1 TO 3 DO
+            ModeNames[i] := F_UnitModeToString(UDINT_TO_DINT(i));
+        END_FOR
+
+        //Initialize_TagData();
+		RegisterExternalController(Controller := fbControlSourceHMI);
+		fbControlSourceHMI.CyclicLogic();
+        DescendantSequenceState := DescendantSequenceState + 10;
+		
+	30: //Register homing methods for each axis
+//				ShuttleAxis.HomeMethod := AbsHomingShuttle;
+//				AbsHomingShuttle.Parameters := ShuttleHomingParameters;
+//				ElevatorAxisA.HomeMethod := AbsHomingElevA;
+//				AbsHomingElevA.Parameters := ElevAHomingParameters;
+//				ElevatorAxisB.HomeMethod := AbsHomingElevB;
+//				AbsHomingElevB.Parameters := ElevBHomingParameters;
+      	DescendantSequenceState := DescendantSequenceState + 10;
+    40:
+        //Call the Super
+        IF SUPER^.Initialize() THEN
+            DescendantSequenceState := DescendantSequenceState + 10;
+        END_IF
+    50:
+        Initialize := TRUE;
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="LoadCassette" Id="{ee35de60-c5f2-4af1-8448-c7a13c5e4bd2}" FolderPath="Methods\Custom Methods\">
       <Declaration><![CDATA[METHOD LoadCassette : BOOL
 VAR_INPUT
+
 END_VAR
 ]]></Declaration>
       <Implementation>
@@ -332,6 +589,25 @@ close the door, restart the machine, map the cassettes and go into a ready state
 ]]></ST>
       </Implementation>
     </Method>
+    <Property Name="LoadOrUnload" Id="{e8d97373-1153-461a-aa4f-8058a8edfe0d}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY LoadOrUnload : bool]]></Declaration>
+      <Get Name="Get" Id="{fb526f32-c36d-4263-9bbf-27c96a94bcee}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[LoadOrUnload := _LoadOrUnload;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{29b02b2c-0edd-4400-9325-52589c8ca530}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[_LoadOrUnload := LoadOrUnload;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
     <Method Name="MapCassette" Id="{56a6e915-6f8a-4fb4-ad24-df0b01475ae7}" FolderPath="Methods\Custom Methods\">
       <Declaration><![CDATA[METHOD MapCassette : BOOL
 VAR_INPUT
@@ -349,10 +625,49 @@ END_VAR]]></Declaration>
     <Method Name="PlaceToNextOpenSlot" Id="{df984bf4-69c9-4aed-ad44-c7461d2d7919}" FolderPath="Methods\Custom Methods\">
       <Declaration><![CDATA[METHOD PlaceToNextOpenSlot : BOOL
 VAR_INPUT
+	NextCassette : INT;
+	NextSlot : DINT;
 END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[//This method will place the waveguide (placed on the blade by the tool) to the next open slot]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Resetting" Id="{111af2e3-4fe9-4e0f-9563-9b8550596a16}" FolderPath="Methods\Acting States\">
+      <Declaration><![CDATA[METHOD PROTECTED Resetting
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _CurrentMode OF
+    //=================================PRODUCTION MODE==================================
+    E_PMLUnitMode.ePMLUnitMode_Production:
+        CASE SequenceState OF
+            0:
+                NoStateTasksToComplete := FALSE;
+                SequenceState          := SequenceState + 10;
+            10:
+				// Enable here
+				ElevatorAxisA.Enable();
+				ElevatorAxisB.Enable();
+				ShuttleAxis.Enable();	
+				// Check enabled here
+				IF (ElevatorAxisA.Enabled AND ElevatorAxisB.Enabled AND ShuttleAxis.Enabled) THEN
+					StateTasksComplete := TRUE;
+				END_IF
+                //SequenceState := SequenceState + 10;
+            20:
+                //IF (*LeftPullWheel.InGear AND*) RightPullWheel.InGear THEN
+                    //StateTasksComplete := TRUE;
+                //END_IF
+        END_CASE
+
+    //=================================MAINTENANCE & MANUAL MODE==================================	
+    E_PMLUnitMode.ePMLUnitMode_Maintenance, E_PMLUnitMode.ePMLUnitMode_Manual:
+        ;
+END_CASE
+
+SUPER^.Resetting();]]></ST>
       </Implementation>
     </Method>
     <Property Name="ShuttleCassettePosition" Id="{86ad11d0-eab7-4f1a-9cfc-1c216e256605}" FolderPath="Properties\">
@@ -373,6 +688,25 @@ END_VAR
         <Implementation>
           <ST><![CDATA[recipe.Shuttle.CassettePosition := ShuttleCassettePosition;
 ]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="ShuttleReady" Id="{9d53f2e7-2f58-409e-87c1-9367c222f1d7}" FolderPath="Properties\">
+      <Declaration><![CDATA[PROPERTY ShuttleReady : BOOL]]></Declaration>
+      <Get Name="Get" Id="{c8d78756-68d5-43c5-a438-cb87dd60f352}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ShuttleReady := _ShuttleReady;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{b8c85d81-3b12-44d9-aba4-78ec55859cf3}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[_ShuttleReady := ShuttleReady;]]></ST>
         </Implementation>
       </Set>
     </Property>
@@ -454,9 +788,30 @@ This method is called as required by <c>StateControl()</c>
             10:
                 //assign all recipe values here
 				ElevatorAxisA.Velocity := Recipe.Elevator.Velocity;
+				ElevatorAxisA.Acceleration := Recipe.Elevator.Acceleration;
                 SequenceState := SequenceState + 10;
-            20:
-                IF (ElevatorAxisA.Busy AND ElevatorAxisB.Busy AND ShuttleAxis.Busy) THEN
+			20:
+				//Home the shuttle axis
+				ShuttleAxis.Home();
+				SequenceState := SequenceState + 10;
+			30: 
+				//Home the elevator axis at the same time
+				ElevatorAxisA.Home();
+				ElevatorAxisB.Home();
+				SequenceState := SequenceState + 10;
+			40: //With the elevator stages at home, map each cassette
+				MapCassette(0);
+				IF NOT ElevatorAxisA.Busy THEN
+					SequenceState := SequenceState + 10;
+				END_IF
+			50: //
+				MapCassette(1);
+				IF NOT ElevatorAxisB.Busy THEN
+					SequenceState := SequenceState + 10;
+				END_IF
+            60:
+				//Verify that home is completed and home sensors are satisfied
+                IF NOT (ElevatorAxisA.Busy AND ElevatorAxisB.Busy AND ShuttleAxis.Busy) THEN
                     StateTasksComplete := TRUE;
                 END_IF
         END_CASE
@@ -465,6 +820,72 @@ This method is called as required by <c>StateControl()</c>
     E_PMLUnitMode.ePMLUnitMode_Maintenance, E_PMLUnitMode.ePMLUnitMode_Manual:
         ;
 END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stopping" Id="{0e458215-351e-44f5-9214-989717195c78}" FolderPath="Methods\Acting States\">
+      <Declaration><![CDATA[METHOD PROTECTED Stopping
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _CurrentMode OF
+    //=================================PRODUCTION MODE==================================
+	//	The elevators and shuttle are disabled, so they can not be moved. Does this state do anything?
+	
+    E_PMLUnitMode.ePMLUnitMode_Production:
+        CASE SequenceState OF
+            0:
+                NoStateTasksToComplete := FALSE;
+                //PullWheelCylinder.Retract();
+                SequenceState := SequenceState + 10;
+            10:
+				
+//                IF PullWheelCylinder.Retracted THEN
+//                    SequenceState := SequenceState + 10;
+//                END_IF
+				SequenceState := SequenceState + 10;
+            20:
+                StateTasksComplete := TRUE;
+        END_CASE
+
+    //=================================MAINTENANCE & MANUAL MODE==================================
+    E_PMLUnitMode.ePMLUnitMode_Maintenance, E_PMLUnitMode.ePMLUnitMode_Manual:
+        ;
+END_CASE
+
+SUPER^.Stopping();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Suspending" Id="{77b8e905-0e66-474d-952e-699895a2e113}" FolderPath="Methods\Acting States\">
+      <Declaration><![CDATA[//! @summary This method contains code which will execute when this PackML module is in the <b>Suspending</b> state
+METHOD PROTECTED Suspending
+VAR
+	i				: UDINT;
+	SubModulesReady : BOOL := TRUE;
+END_VAR
+
+(*! <description><b>Note:</b> The <i>Suspend</i> command is intended to be initiated by automatic detection of upstream/downstream jams, etc. It is meant to be distinct from a <i>Hold</i> in that <i>Hold</i> should be commanded by an operator.  Both <i>Hold</i>and<i>Suspend</i> result in a <i>paused</i> state which should allow resumption of the <b>Execute</b> state. 
+<table> 
+	<tr>
+		<th> Previous State </th>
+		<th> Transition In </th>
+		<th> Transition Out </th>
+		<th> Next State  </th> 
+	</tr>
+	<tr>
+		<td> Execute </td>
+		<td> Suspend Command </td> 
+		<td> State Complete </td>
+		<td> Suspended </td> 
+	</tr>
+</table>
+This method is called as required by <c>StateControl()</c>
+</description> 
+
+*)]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[//Notify the tool that the shuttle is waiting
+]]></ST>
       </Implementation>
     </Method>
     <Method Name="UnloadCassette" Id="{8aea1982-41d3-46b5-96ee-f96fdba3f914}" FolderPath="Methods\Custom Methods\">
@@ -498,11 +919,14 @@ END_VAR
     </Property>
     <LineIds Name="FB_CassetteLoader">
       <LineId Id="9" Count="0" />
+      <LineId Id="70" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.Aborting">
       <LineId Id="6" Count="5" />
       <LineId Id="28" Count="1" />
-      <LineId Id="13" Count="5" />
+      <LineId Id="13" Count="2" />
+      <LineId Id="35" Count="0" />
+      <LineId Id="16" Count="2" />
       <LineId Id="30" Count="1" />
       <LineId Id="19" Count="8" />
       <LineId Id="5" Count="0" />
@@ -532,19 +956,34 @@ END_VAR
       <LineId Id="2" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.Clearing">
-      <LineId Id="6" Count="6" />
-      <LineId Id="22" Count="1" />
-      <LineId Id="13" Count="8" />
+      <LineId Id="6" Count="3" />
+      <LineId Id="28" Count="2" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="19" Count="2" />
       <LineId Id="5" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.CyclicLogic">
       <LineId Id="6" Count="7" />
       <LineId Id="5" Count="0" />
+      <LineId Id="18" Count="0" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="20" Count="2" />
+      <LineId Id="29" Count="1" />
+      <LineId Id="23" Count="0" />
+      <LineId Id="32" Count="3" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="36" Count="0" />
+      <LineId Id="38" Count="9" />
+      <LineId Id="37" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.DetermineNextSlot">
       <LineId Id="5" Count="0" />
+      <LineId Id="33" Count="3" />
+      <LineId Id="12" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.DetermineNextWaveguide">
+      <LineId Id="10" Count="4" />
       <LineId Id="5" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.ElevatorAcceleration.Get">
@@ -567,21 +1006,123 @@ END_VAR
       <LineId Id="5" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.Execute">
-      <LineId Id="6" Count="23" />
-      <LineId Id="31" Count="4" />
+      <LineId Id="6" Count="2" />
+      <LineId Id="56" Count="0" />
+      <LineId Id="163" Count="1" />
+      <LineId Id="9" Count="0" />
+      <LineId Id="27" Count="0" />
+      <LineId Id="71" Count="0" />
+      <LineId Id="78" Count="1" />
+      <LineId Id="72" Count="0" />
+      <LineId Id="82" Count="0" />
+      <LineId Id="80" Count="1" />
+      <LineId Id="83" Count="1" />
+      <LineId Id="77" Count="0" />
+      <LineId Id="103" Count="0" />
+      <LineId Id="105" Count="0" />
+      <LineId Id="108" Count="1" />
+      <LineId Id="111" Count="1" />
+      <LineId Id="110" Count="0" />
+      <LineId Id="106" Count="0" />
+      <LineId Id="114" Count="3" />
+      <LineId Id="113" Count="0" />
+      <LineId Id="107" Count="0" />
+      <LineId Id="104" Count="0" />
+      <LineId Id="130" Count="1" />
+      <LineId Id="85" Count="2" />
+      <LineId Id="89" Count="0" />
+      <LineId Id="95" Count="1" />
+      <LineId Id="98" Count="1" />
+      <LineId Id="97" Count="0" />
+      <LineId Id="160" Count="0" />
+      <LineId Id="88" Count="0" />
+      <LineId Id="74" Count="0" />
+      <LineId Id="90" Count="0" />
+      <LineId Id="75" Count="0" />
+      <LineId Id="91" Count="1" />
+      <LineId Id="94" Count="0" />
+      <LineId Id="93" Count="0" />
+      <LineId Id="73" Count="0" />
+      <LineId Id="161" Count="1" />
+      <LineId Id="55" Count="0" />
+      <LineId Id="61" Count="0" />
+      <LineId Id="118" Count="1" />
+      <LineId Id="121" Count="0" />
+      <LineId Id="123" Count="6" />
+      <LineId Id="122" Count="0" />
+      <LineId Id="132" Count="0" />
+      <LineId Id="138" Count="12" />
+      <LineId Id="137" Count="0" />
+      <LineId Id="133" Count="0" />
+      <LineId Id="173" Count="0" />
+      <LineId Id="165" Count="0" />
+      <LineId Id="167" Count="1" />
+      <LineId Id="174" Count="0" />
+      <LineId Id="176" Count="1" />
+      <LineId Id="175" Count="0" />
+      <LineId Id="178" Count="0" />
+      <LineId Id="151" Count="0" />
+      <LineId Id="169" Count="0" />
+      <LineId Id="172" Count="0" />
+      <LineId Id="170" Count="1" />
+      <LineId Id="152" Count="1" />
+      <LineId Id="134" Count="0" />
+      <LineId Id="154" Count="4" />
+      <LineId Id="135" Count="0" />
+      <LineId Id="159" Count="0" />
+      <LineId Id="136" Count="0" />
+      <LineId Id="120" Count="0" />
+      <LineId Id="62" Count="0" />
+      <LineId Id="40" Count="0" />
+      <LineId Id="39" Count="0" />
+      <LineId Id="31" Count="3" />
+      <LineId Id="41" Count="0" />
+      <LineId Id="44" Count="0" />
+      <LineId Id="42" Count="1" />
+      <LineId Id="35" Count="0" />
+      <LineId Id="45" Count="0" />
+      <LineId Id="47" Count="2" />
+      <LineId Id="46" Count="0" />
+      <LineId Id="50" Count="0" />
+      <LineId Id="52" Count="2" />
+      <LineId Id="51" Count="0" />
       <LineId Id="5" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.GetNextWaveguide">
       <LineId Id="5" Count="0" />
     </LineIds>
+    <LineIds Name="FB_CassetteLoader.Initialize">
+      <LineId Id="12" Count="2" />
+      <LineId Id="18" Count="4" />
+      <LineId Id="68" Count="0" />
+      <LineId Id="70" Count="24" />
+      <LineId Id="50" Count="10" />
+      <LineId Id="95" Count="7" />
+      <LineId Id="112" Count="0" />
+      <LineId Id="61" Count="6" />
+      <LineId Id="11" Count="0" />
+    </LineIds>
     <LineIds Name="FB_CassetteLoader.LoadCassette">
       <LineId Id="5" Count="2" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.LoadOrUnload.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.LoadOrUnload.Set">
+      <LineId Id="2" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.MapCassette">
       <LineId Id="5" Count="0" />
       <LineId Id="7" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.PlaceToNextOpenSlot">
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.Resetting">
+      <LineId Id="6" Count="7" />
+      <LineId Id="34" Count="3" />
+      <LineId Id="39" Count="2" />
+      <LineId Id="18" Count="12" />
       <LineId Id="5" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.ShuttleCassettePosition.Get">
@@ -591,6 +1132,12 @@ END_VAR
     <LineIds Name="FB_CassetteLoader.ShuttleCassettePosition.Set">
       <LineId Id="2" Count="0" />
       <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ShuttleReady.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.ShuttleReady.Set">
+      <LineId Id="2" Count="0" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.ShuttleToolPosition.Get">
       <LineId Id="2" Count="0" />
@@ -610,8 +1157,35 @@ END_VAR
     <LineIds Name="FB_CassetteLoader.Starting">
       <LineId Id="27" Count="8" />
       <LineId Id="48" Count="0" />
-      <LineId Id="38" Count="9" />
+      <LineId Id="73" Count="0" />
+      <LineId Id="38" Count="0" />
+      <LineId Id="74" Count="1" />
+      <LineId Id="82" Count="0" />
+      <LineId Id="76" Count="2" />
+      <LineId Id="84" Count="1" />
+      <LineId Id="79" Count="0" />
+      <LineId Id="86" Count="1" />
+      <LineId Id="90" Count="2" />
+      <LineId Id="88" Count="0" />
+      <LineId Id="93" Count="2" />
+      <LineId Id="89" Count="0" />
+      <LineId Id="39" Count="0" />
+      <LineId Id="80" Count="0" />
+      <LineId Id="40" Count="7" />
       <LineId Id="26" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.Stopping">
+      <LineId Id="9" Count="1" />
+      <LineId Id="32" Count="1" />
+      <LineId Id="11" Count="6" />
+      <LineId Id="31" Count="0" />
+      <LineId Id="18" Count="2" />
+      <LineId Id="30" Count="0" />
+      <LineId Id="21" Count="8" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_CassetteLoader.Suspending">
+      <LineId Id="27" Count="1" />
     </LineIds>
     <LineIds Name="FB_CassetteLoader.UnloadCassette">
       <LineId Id="5" Count="1" />
