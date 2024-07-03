@@ -101,7 +101,7 @@
                     </o>
                     <o>
                       <v n="Id">2422045748L</v>
-                      <v n="Value">261</v>
+                      <v n="Value">266</v>
                     </o>
                     <o>
                       <v n="Id">2134141914L</v>
@@ -1449,7 +1449,7 @@
             </o>
             <v n="DialogDut">{ba92894c-be60-43c8-858a-eaa8b174e123}</v>
           </o>
-          <v n="LastUsedIdForIdentifier">22</v>
+          <v n="LastUsedIdForIdentifier">24</v>
           <o n="TextDocument" t="TextDocument">
             <a n="TextLines" cet="TextLine">
               <o>
@@ -1486,12 +1486,12 @@
             <d2 n="Size" ckt="Int32" cvt="VisualObjectSize">
               <v>0</v>
               <o>
-                <v n="Width">261</v>
+                <v n="Width">266</v>
                 <v n="Height">171</v>
               </o>
               <v>1</v>
               <o>
-                <v n="Width">262</v>
+                <v n="Width">267</v>
                 <v n="Height">172</v>
               </o>
             </d2>

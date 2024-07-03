@@ -259,3 +259,6 @@ paket-files/
 # Python Tools for Visual Studio (PTVS)
 __pycache__/
 *.pyc
+/cassette_loader/CassetteLoaderPLC/_CompileInfo/0EE48E02-1724-3D38-D2C7-57B4329D06BB.compileinfo
+/cassette_loader/CassetteLoaderPLC/_CompileInfo/8D666B91-F45C-E80F-E5AA-CFBE1D259135.compileinfo
+/cassette_loader/TrialLicense.tclrs
